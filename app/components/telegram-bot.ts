@@ -1,9 +1,23 @@
 import TelegramBot from 'node-telegram-bot-api';
+import { SendMessageOptions } from 'chatgpt';
 import chatgpt from './chatgpt.js';
 
 const token = process.env.TELEGRAM_BOT_TOKEN as string;
-
 const bot = new TelegramBot(token, { polling: true });
+let timeout: ReturnType<typeof setTimeout>;
+
+function sendTypingAction(chatId: number) {
+  bot
+    .sendChatAction(chatId, 'typing')
+    .then(() => {
+      timeout = setTimeout(() => {
+        sendTypingAction(chatId);
+      }, 5000); // set a 5 second delay
+    })
+    .catch((error) => {
+      console.log('Error sending typing action:', error);
+    });
+}
 
 let parentMessageId = '';
 
@@ -21,20 +35,28 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const { text } = msg;
 
-  // send a message to the chat acknowledging receipt of their message
   if (text) {
-    bot.sendChatAction(msg.chat.id, 'typing');
-    let option;
-    console.log(parentMessageId);
+    sendTypingAction(chatId);
+
+    let option: SendMessageOptions = {
+      completionParams: {
+        model: 'gpt-3.5-turbo'
+      }
+    };
 
     if (parentMessageId) {
       option = { parentMessageId };
     }
+
     const response = await chatgpt.sendMessage(text, option);
     parentMessageId = response.id;
-    console.log(response.text);
-    bot.sendMessage(chatId, response.text);
+
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    await bot.sendMessage(chatId, response.text, { parse_mode: 'Markdown' });
   } else {
-    bot.sendMessage(chatId, 'Please input text!');
+    await bot.sendMessage(chatId, 'Please input text!');
   }
 });
